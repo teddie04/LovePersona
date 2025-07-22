@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LovePersona</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Pacifico&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .fancy-font {
+            font-family: 'Pacifico', cursive;
+        }
+        .heartbeat {
+            animation: heartbeat 1.5s ease-in-out infinite both;
+        }
+        @keyframes heartbeat {
+            from { transform: scale(1); }
+            10% { transform: scale(0.91); }
+            17% { transform: scale(0.98); }
+            33% { transform: scale(0.87); }
+            45% { transform: scale(1); }
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-orange-100 to-amber-200 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl p-8 text-center transition-all duration-500">
+        
+        <!-- Screen 1: Name Input -->
+        <div id="nameScreen">
+            <h1 class="text-4xl md:text-5xl text-orange-600 fancy-font mb-4">Partner Persona</h1>
+            <p class="text-gray-600 mb-8">Let's find out your partner's vibe!<br>
+                                            Names are to Find their Personality based on their Astrological Sign!!</p>
+            <div class="space-y-6">
+                <div>
+                    <label for="yourName" class="sr-only">Your Name</label>
+                    <input type="text" id="yourName" placeholder="Your Name" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:ring-orange-500 focus:border-orange-500 transition duration-300">
+                </div>
+                <div>
+                    <label for="partnerName" class="sr-only">Partner's Name</label>
+                    <input type="text" id="partnerName" placeholder="Partner's Name" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:ring-orange-500 focus:border-orange-500 transition duration-300">
+                </div>
+            </div>
+            <button id="startQuizBtn" class="w-full mt-8 bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 px-4 rounded-lg shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 opacity-50 cursor-not-allowed" disabled>
+                Start Quiz
+            </button>
+             <p id="authMessage" class="text-sm text-gray-400 mt-4">Initializing...</p>
+        </div>
+
+        <!-- Screen 2: Decoy Persona Screen -->
+        <div id="decoyScreen" class="hidden">
+            <h2 id="decoySign" class="text-3xl font-bold text-orange-600 fancy-font mb-4"></h2>
+            <p id="decoyDescription" class="text-gray-700 mb-8"></p>
+            <button id="nextBtn" class="w-full mt-8 bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 px-4 rounded-lg shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300">
+                Next
+            </button>
+        </div>
+
+
+        <!-- Screen 3: Quiz -->
+        <div id="quizScreen" class="hidden">
+            <h2 id="questionText" class="text-2xl font-bold text-gray-800 mb-6"></h2>
+            <div id="optionsContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Options will be injected by JS -->
+            </div>
+        </div>
+
+        <!-- Screen 4: Final Result -->
+        <div id="resultScreen" class="hidden">
+            <!-- Result content will be injected by JS -->
+        </div>
+
+    </div>
+
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        // --- Firebase Configuration ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyA6c55y5XKB2TGRnhS_4N2k9AtOb5ZfTCk",
+            authDomain: "lovecalculator-9608b.firebaseapp.com",
+            projectId: "lovecalculator-9608b",
+            storageBucket: "lovecalculator-9608b.appspot.com",
+            messagingSenderId: "939055972261",
+            appId: "1:939055972261:web:0e69b85224190a6456f24c",
+            measurementId: "G-8ECSZQEJHY"
+        };
+        
+        const appId = 'lovecalculator-9608b';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth;
+        
+        // --- DOM Elements ---
+        const nameScreen = document.getElementById('nameScreen');
+        const decoyScreen = document.getElementById('decoyScreen');
+        const quizScreen = document.getElementById('quizScreen');
+        const resultScreen = document.getElementById('resultScreen');
+        
+        const yourNameInput = document.getElementById('yourName');
+        const partnerNameInput = document.getElementById('partnerName');
+        const startQuizBtn = document.getElementById('startQuizBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const authMessage = document.getElementById('authMessage');
+
+        const decoySign = document.getElementById('decoySign');
+        const decoyDescription = document.getElementById('decoyDescription');
+        const questionText = document.getElementById('questionText');
+        const optionsContainer = document.getElementById('optionsContainer');
+
+        // --- Quiz Data & State (Indian Style) ---
+        const quizQuestions = [
+            { question: "After a long day, what's {partner}'s go-to way to relax?", options: ["Endless Instagram Reels", "A hot cup of chai & pakode", "Long phone call with their bestie", "Watching the latest web series"], key: "chillVibe" },
+            { question: "In the friend group, what's {partner}'s role?", options: ["The Jugaadu (can fix anything)", "The Foodie (knows all the best spots)", "The Mom Friend (always has your back)", "The Entertainer (full of jokes & stories)"], key: "mainEnergy" },
+            { question: "What's {partner}'s perfect weekend plan?", options: ["A long bike ride to a scenic spot", "Biryani & movie marathon at home", "Shopping spree at the local market", "Attending a family function"], key: "weekendPlan" },
+            { question: "What's {partner}'s ultimate comfort food?", options: ["Mom's biryani", "Spicy street-side Pani Puri", "A cheesy Dominos pizza", "A whole box of Motichoor Ladoo"], key: "comfortFood" },
+            { question: "How does {partner} show they care?", options: ["Bringing you your favourite snack", "Sharing memes they know you'll love", "Hyping you up in front of everyone", "yap with you"], key: "loveLanguage" },
+            { question: "{partner} sees a cringey family WhatsApp forward. What do they do?", options: ["Silently ignores it", "Replies with '🙏'", "Sends it to you with '😂'", "Forwards it to another group ironically"], key: "cringePostReaction" },
+            { question: "How do you know {partner} is mad on WhatsApp?", options: ["Replies with 'Hmm' or 'Ok.'", "Blue ticks you for hours", "Ghosts u until u send a message", "Sends a passive-aggressive sticker"], key: "angryTextStyle" },
+            { question: "It's 2 AM. What's {partner}'s go-to 'bad decision' snack?", options: ["Leftover biryani from the fridge", "Maggi with extra masala", "A whole packet of Lays", "A sneaky bar of Dairy Milk Silk"], key: "lateNightSnack" },
+            { question: "When you give {partner} a surprise gift, what's their first reaction?", options: ["Gets super excited and tells everyone", "Awwwwwwww", "Gets emotional and treasures it", "No reaction (do these people exist?)"], key: "pettyCrime" }            
+            { question: "What's {partner}'s guilty pleasure TV show?", options: ["Game of Thrones", "50 Shades of Grey", "Vampire Diaries", "Breaking Bad"], key: "realityTV" },
+            { question: "What's {partner}'s most endearing drama or movie-watching habit?", options: ["Predicting the plot twist out loud", "Crying during emotional scenes", "Reciting all the dialogues", "Asking 'who is that actor?' every 5 mins"], key: "cuteHabit" }
+            { question: "Does {partner} read Books?", options: ["Yeahh!!", "Nah :( ", "Reads my Suggestions (How Romantic) ", "What's that?"], key: "datingBio" },
+            { question: "What's {partner}'s secret 'sad song' on loop?", options: ["Anything by Arijit Singh", "A classic Jagjit Singh ghazal", "Channa Mereya", "A sad Punjabi song"], key: "cryAnthem" },
+            { question: "What {partner} does'nt like about you?", options: ["Irresponsibility!", "Talking to other gender(prob jealous :)) )", "Always Sleeping", "He likes me no matter what!"], key: "socialBattery" },
+            { question: "What's most likely to be {partner}'s phone wallpaper?", options: ["Their 'Pinterest aesthetic' photo", "A picture of their family", "A cool car or bike", "A picture of a deity"], key: "memeHumor" }        ];
+
+        let currentQuestionIndex = 0;
+        let userAnswers = {};
+
+        const animalArt = {
+            goldenRetriever: `<svg class="w-24 h-24 mx-auto text-yellow-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14s-3.5 3-7 3-3.5-3.5-3.5-3.5 3.5-3 7-3 3.5 3.5 3.5 3.5z"></path><path d="M12 14l2-2-2-2"></path><path d="M22 12c0 4.4-3.6 8-8 8s-8-3.6-8-8 3.6-8 8-8c2.2 0 4.2.9 5.7 2.3"></path><path d="M17.7 6.3c.7-.7 1.7-1.1 2.8-1.1"></path></svg>`,
+            cat: `<svg class="w-24 h-24 mx-auto text-gray-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 16.5c2.5-1.5 4-4.5 4-7.5 0-4.4-3.6-8-8-8s-8 3.6-8 8c0 3 1.5 6 4 7.5"></path><path d="M2 16.5c0 2.5 2 4.5 4 4.5s4-2 4-4.5"></path><path d="M22 16.5c0 2.5-2 4.5-4 4.5s-4-2-4-4.5"></path><path d="M7 13.5c.5-1 1.5-1.5 2.5-1.5s2 .5 2.5 1.5"></path><path d="M15 13.5c.5-1 1.5-1.5 2.5-1.5s2 .5 2.5 1.5"></path></svg>`,
+            otter: `<svg class="w-24 h-24 mx-auto text-amber-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-2 0-4-1-4-4s2-4 4-4 4 1 4 4-2 4-4 4z"></path><path d="M18.5 12.5c0-4-3-7.5-6.5-7.5s-6.5 3.5-6.5 7.5c0 2.5 1.5 4.5 3.5 5.5"></path><path d="M12 20v-4"></path><path d="M6 18.5c-1.5-1-2.5-2.5-2.5-4.5"></path></svg>`,
+            redPanda: `<svg class="w-24 h-24 mx-auto text-red-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12m-10 0a10 10 0 1 0 20 0a10 10 0 1 0-20 0"></path><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0-8 0"></path><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="M22 12h-2"></path><path d="M4 12H2"></path><path d="M19.07 4.93l-1.41 1.41"></path><path d="M6.34 17.66l-1.41 1.41"></path><path d="M19.07 19.07l-1.41-1.41"></path><path d="M6.34 6.34l-1.41-1.41"></path></svg>`
+        };
+
+        async function initializeAppAndAuth() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                if (initialAuthToken) {
+                    try {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } catch (tokenError) {
+                        if (tokenError.code === 'auth/custom-token-mismatch') {
+                            console.warn("Custom token mismatch. Falling back to anonymous sign-in.");
+                            await signInAnonymously(auth);
+                        } else {
+                            throw tokenError;
+                        }
+                    }
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                startQuizBtn.disabled = false;
+                startQuizBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                authMessage.textContent = "Ready to start!";
+                authMessage.classList.add('text-green-500');
+
+            } catch (e) {
+                console.error("Firebase initialization or authentication failed:", e);
+                if (e.code === 'auth/configuration-not-found') {
+                    authMessage.innerHTML = `<div class="text-red-600 text-left text-xs p-2 bg-red-50 rounded-md border border-red-200"><p class="font-bold mb-1">Action Required: Enable Anonymous Sign-In</p><p>Go to your Firebase project > Authentication > Sign-in method > and enable <strong>Anonymous</strong> sign-in. Then, refresh this page.</p></div>`;
+                } else {
+                    authMessage.textContent = "Service unavailable. Please refresh.";
+                    authMessage.classList.add('text-red-500');
+                }
+            }
+        }
+        
+        startQuizBtn.addEventListener('click', () => {
+            const yourName = yourNameInput.value.trim();
+            const partnerName = partnerNameInput.value.trim();
+
+            if (!yourName || !partnerName) {
+                authMessage.textContent = "Please enter both names!";
+                authMessage.classList.add('text-yellow-500');
+                return;
+            }
+            
+            userAnswers.yourName = yourName;
+            userAnswers.partnerName = partnerName;
+
+            // Show the decoy screen first
+            nameScreen.classList.add('hidden');
+            displayDecoyScreen(partnerName);
+            decoyScreen.classList.remove('hidden');
+            decoyScreen.classList.add('fade-in');
+        });
+
+        nextBtn.addEventListener('click', () => {
+            decoyScreen.classList.add('hidden');
+            quizScreen.classList.remove('hidden');
+            quizScreen.classList.add('fade-in');
+            displayQuestion();
+        });
+
+        function displayDecoyScreen(partnerName) {
+            const signs = ["The Chai Charmer", "The Monsoon Dreamer", "The Gulab Jamun", "The Royal Enfield", "The Mango Marvel"];
+            const descriptions = [
+                "They have a warm and comforting presence, just like a perfect cup of chai. People are naturally drawn to their soothing energy.",
+                "A bit unpredictable and deeply romantic, they find beauty in small things and have a soulful, artistic side.",
+                "Incredibly sweet and loved by everyone, they bring immense joy and are a treat to be around.",
+                "They have a classic, strong personality with a wild and adventurous streak. They are reliable and always ready for a journey.",
+                "Known for their sweet nature and vibrant personality, they are a seasonal favorite who everyone waits for eagerly."
+            ];
+
+            // Generate a sign based on name length
+            const signIndex = partnerName.length % signs.length;
+            decoySign.textContent = `Based on our calculations, ${partnerName}'s persona is... ${signs[signIndex]}!`;
+
+            // Display a random description
+            const descIndex = Math.floor(Math.random() * descriptions.length);
+            decoyDescription.textContent = descriptions[descIndex];
+        }
+
+        function displayQuestion() {
+            const currentQuestion = quizQuestions[currentQuestionIndex];
+            const partnerName = userAnswers.partnerName || "your partner";
+            
+            const formattedQuestion = currentQuestion.question.replace('{partner}', partnerName);
+            questionText.textContent = `(${currentQuestionIndex + 1}/${quizQuestions.length}) ${formattedQuestion}`;
+            
+            optionsContainer.innerHTML = '';
+
+            currentQuestion.options.forEach(option => {
+                const button = document.createElement('button');
+                button.textContent = option;
+                button.className = "w-full p-4 border-2 border-gray-200 rounded-lg hover:bg-orange-100 hover:border-orange-400 transition duration-300";
+                button.onclick = () => selectAnswer(option, currentQuestion.key);
+                optionsContainer.appendChild(button);
+            });
+        }
+
+        function selectAnswer(answer, key) {
+            userAnswers[key] = answer;
+            currentQuestionIndex++;
+
+            if (currentQuestionIndex < quizQuestions.length) {
+                const quizContainer = document.getElementById('quizScreen');
+                quizContainer.classList.remove('fade-in');
+                void quizContainer.offsetWidth;
+                quizContainer.classList.add('fade-in');
+                displayQuestion();
+            } else {
+                showFinalResult();
+            }
+        }
+
+        function generatePersonalityProfile() {
+            const { mainEnergy, weekendPlan, loveLanguage, partnerName } = userAnswers;
+            let persona = {};
+
+            if (mainEnergy === 'The Entertainer' || weekendPlan === 'A long bike ride to a scenic spot') {
+                persona = { animal: 'Golden Retriever', art: animalArt.goldenRetriever, title: `A Loyal & Fun-Loving Spirit!`, description: `${partnerName} is like a happy golden retriever, full of life and always ready for the next adventure. They're the entertainer of the group and cherish making memories together. Their love is warm, loyal, and incredibly present.` };
+            } else if (mainEnergy === 'The Mom Friend' || weekendPlan === 'Biryani & movie marathon at home') {
+                 persona = { animal: 'Cat', art: animalArt.cat, title: `A Master of Cozy Comfort!`, description: `${partnerName} has the comforting and caring spirit of a cat. They know how to create a perfect chill vibe and find joy in cozy moments at home. They show their love in subtle, meaningful ways, always having your back.` };
+            } else if (loveLanguage === 'Bringing you your favourite snack' || weekendPlan === 'Shopping spree at the local market') {
+                 persona = { animal: 'Otter', art: animalArt.otter, title: `A Playful & Thoughtful Soul!`, description: `Like a playful otter, ${partnerName} finds joy in sharing experiences and thoughtful gifts (like snacks!). They have a curious and fun-loving nature, always looking for new things to enjoy together. Their affection is both creative and heartfelt.` };
+            } else {
+                 persona = { animal: 'Red Panda', art: animalArt.redPanda, title: `A Uniquely Charming Personality!`, description: `${partnerName} is like a rare red panda—charming, a little shy, but incredibly special. They're the 'jugaadu' friend with a unique way of looking at the world, showing their affection through deep, meaningful connections.` };
+            }
+            return persona;
+        }
+
+        async function showFinalResult() {
+            quizScreen.classList.add('hidden');
+            resultScreen.classList.remove('hidden');
+            resultScreen.classList.add('fade-in');
+
+            const profile = generatePersonalityProfile();
+            userAnswers.persona = profile.animal;
+
+            resultScreen.innerHTML = `
+                <div class="fade-in">
+                    ${profile.art}
+                    <h2 class="text-3xl font-bold text-gray-800 my-4">${profile.title}</h2>
+                    <p class="text-gray-600 mb-6">${profile.description}</p>
+                    <div class="text-orange-400 text-6xl mt-4 heartbeat">❤️</div>
+                    <p class="fancy-font text-orange-500 text-4xl mt-4">A Perfect Match!</p>
+                </div>
+            `;
+
+            await saveQuizData();
+        }
+
+        async function saveQuizData() {
+            if (!db) {
+                console.error("Firestore is not initialized. Cannot save data.");
+                return;
+            }
+            try {
+                const collectionPath = `/artifacts/${appId}/public/data/quizEntries`;
+                
+                const dataToSave = {
+                    ...userAnswers,
+                    timestamp: serverTimestamp()
+                };
+
+                await addDoc(collection(db, collectionPath), dataToSave);
+            } catch (error)
+                {
+                console.error("Error writing document to Firestore: ", error);
+            }
+        }
+
+        initializeAppAndAuth();
+    </script>
+</body>
+</html>
